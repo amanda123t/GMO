@@ -21,6 +21,12 @@ export interface WaveItem {
   completedCount: number;
 }
 
+interface RiskDimension {
+  code: string;
+  name: string;
+  avgScore: number;
+}
+
 interface WaveMetrics {
   waveId: string;
   waveName: string;
@@ -30,7 +36,8 @@ interface WaveMetrics {
   totalRespondents: number;
   completedRespondents: number;
   completionRate: number;
-  eiIndex: number | null;
+  adoptionIndex: number | null;   // Índice de Capacidade de Adoção (0–100)
+  riskDimensions: RiskDimension[]; // dimensions with avgScore ≤ 40
   dimensionScores: DimensionScore[];
   profileDistribution: ProfileBandItem[];
 }
@@ -70,7 +77,7 @@ const ROLE_PILL: Record<string, string> = {
 interface Props {
   user: { name: string | null; email: string; role: Role };
   initialWaves: WaveItem[];
-  showTenant: boolean; // true for SUPER_ADMIN
+  showTenant: boolean;
 }
 
 export function DashboardShell({ user, initialWaves, showTenant }: Props) {
@@ -100,12 +107,11 @@ export function DashboardShell({ user, initialWaves, showTenant }: Props) {
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     if (initialWaves[0]?.id) {
       fetchMetrics(initialWaves[0].id);
     }
-    // fetchMetrics is stable; initialWaves doesn't change after mount
+    // fetchMetrics is stable (no deps); initialWaves doesn't change after mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -235,47 +241,78 @@ export function DashboardShell({ user, initialWaves, showTenant }: Props) {
               </div>
             </section>
 
-            {/* EI Index card */}
+            {/* ── Adoption Index card ── */}
             <section>
-              <div className="bg-gradient-to-br from-blue-950/60 to-slate-900 border border-blue-800/30 rounded-2xl px-8 py-7 flex items-center gap-8">
-                <div>
-                  <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-2">
-                    Índice Geral de IE
-                  </p>
-                  {metrics.eiIndex !== null ? (
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-6xl font-bold text-white">
-                        {metrics.eiIndex}
-                      </span>
-                      <span className="text-slate-500 text-lg">/ 100</span>
-                    </div>
-                  ) : (
-                    <span className="text-4xl font-bold text-slate-600">—</span>
-                  )}
-                  <p className="text-slate-500 text-xs mt-2">
-                    {metrics.eiIndex !== null
-                      ? "Média das 6 dimensões (scores persistidos)"
-                      : "Scores ainda não computados para esta wave"}
-                  </p>
-                </div>
+              <div className="bg-gradient-to-br from-blue-950/60 to-slate-900 border border-blue-800/30 rounded-2xl px-8 py-7">
+                <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-2">
+                  Índice de Capacidade de Adoção
+                </p>
+                {metrics.adoptionIndex !== null ? (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-6xl font-bold text-white">
+                      {metrics.adoptionIndex}
+                    </span>
+                    <span className="text-slate-500 text-lg">/ 100</span>
+                  </div>
+                ) : (
+                  <span className="text-4xl font-bold text-slate-600">—</span>
+                )}
+                <p className="text-slate-500 text-xs mt-2">
+                  {metrics.adoptionIndex !== null
+                    ? "Média das 6 dimensões de IE · scores persistidos pelo engine"
+                    : "Scores ainda não computados para esta wave"}
+                </p>
               </div>
             </section>
 
-            {/* Charts — only rendered when there is score data */}
-            {metrics.eiIndex !== null ? (
+            {/* ── Risk alert ── */}
+            {metrics.riskDimensions.length > 0 && (
+              <section className="bg-red-950/30 border border-red-700/40 rounded-2xl px-6 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-red-400 text-lg leading-none mt-0.5">⚠</span>
+                  <div>
+                    <p className="text-red-300 text-sm font-semibold mb-1">
+                      {metrics.riskDimensions.length === 1
+                        ? "1 dimensão em zona de risco"
+                        : `${metrics.riskDimensions.length} dimensões em zona de risco`}{" "}
+                      <span className="text-red-500 font-normal">(score ≤ 40)</span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {metrics.riskDimensions.map((d) => (
+                        <span
+                          key={d.code}
+                          className="inline-flex items-center gap-1.5 bg-red-900/40 border border-red-700/40 text-red-300 text-xs px-2.5 py-1 rounded-full"
+                        >
+                          {d.name}
+                          <span className="text-red-500 font-medium">
+                            {d.avgScore}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* ── Charts ── */}
+            {metrics.adoptionIndex !== null ? (
               <section className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                {/* Dimension chart — wider */}
+                {/* Dimension chart */}
                 <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-6">
                   <h3 className="text-sm font-semibold mb-0.5">
                     Índice por Dimensão
                   </h3>
                   <p className="text-slate-500 text-xs mb-4">
-                    Score médio por dimensão · escala 0–100
+                    Score médio por dimensão · escala 0–100 · barras em vermelho = zona de risco
                   </p>
-                  <DimensionChart data={metrics.dimensionScores} />
+                  <DimensionChart
+                    data={metrics.dimensionScores}
+                    riskThreshold={40}
+                  />
                 </div>
 
-                {/* Profile distribution — narrower */}
+                {/* Profile distribution */}
                 <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
                   <h3 className="text-sm font-semibold mb-0.5">
                     Distribuição de Perfis
@@ -284,7 +321,6 @@ export function DashboardShell({ user, initialWaves, showTenant }: Props) {
                     Respondentes por faixa de score
                   </p>
                   <ProfileDistribution data={metrics.profileDistribution} />
-                  {/* Legend */}
                   <div className="mt-4 space-y-1.5">
                     {metrics.profileDistribution.map((b) => (
                       <div

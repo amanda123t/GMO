@@ -9,10 +9,14 @@
  *   • 22 Assessments COMPLETED
  *   • 132 Score records (6 dimensões × 22 assessments)
  *
- * Distribuição de perfis (por design):
- *   • 7  Em Desenvolvimento  — avg normalizedScore  15–35
- *   • 8  Em Avanço           — avg normalizedScore  45–65
- *   • 7  Alto Potencial      — avg normalizedScore  72–88
+ * Distribuição de perfis — faixas assimétricas (alinhadas ao framework GMO):
+ *   • 7  Em Risco          — avg normalizedScore ≤ 40  (0–40)
+ *   • 8  Em Desenvolvimento — avg normalizedScore 41–70
+ *   • 5  Em Avanço          — avg normalizedScore 71–85
+ *   • 2  Referência         — avg normalizedScore 86–100
+ *
+ * Sinalização de risco: perfis com avg ≤ 40 puxam médias de dimensão abaixo do
+ * limiar → ao menos 1–2 dimensões aparecerão na zona de risco no dashboard.
  *
  * Idempotente via upsert onde possível.
  * Requer que `prisma/seed.ts` já tenha sido executado (QuestionnaireVersion v1).
@@ -27,12 +31,12 @@ const prisma = new PrismaClient();
 // spread: per-dimension variance ±spread around avg (clamped 0–100).
 
 const PROFILES: Array<{ avg: number; spread: number; count: number }> = [
-  { avg: 22, spread: 8, count: 4 },  // Em Desenvolvimento (low)
-  { avg: 34, spread: 6, count: 3 },  // Em Desenvolvimento (mid-low)
-  { avg: 48, spread: 10, count: 4 }, // Em Avanço (low-mid)
-  { avg: 58, spread: 8, count: 4 },  // Em Avanço (mid)
-  { avg: 74, spread: 9, count: 4 },  // Alto Potencial (low-high)
-  { avg: 84, spread: 7, count: 3 },  // Alto Potencial (high)
+  { avg: 16, spread: 5, count: 4 },  // Em Risco — deeply low; pulls dimension avgs below 40
+  { avg: 32, spread: 6, count: 3 },  // Em Risco — boundary zone
+  { avg: 52, spread: 9, count: 4 },  // Em Desenvolvimento
+  { avg: 63, spread: 7, count: 4 },  // Em Desenvolvimento
+  { avg: 78, spread: 6, count: 5 },  // Em Avanço
+  { avg: 90, spread: 4, count: 2 },  // Referência
 ];
 
 // Deterministic pseudo-random (no Math.random for reproducibility)

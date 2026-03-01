@@ -19,10 +19,12 @@ export interface ProfileBandItem {
   percentage: number;
 }
 
+// 4-band asymmetric scale
 const BAND_COLOR: Record<string, string> = {
-  EM_DESENVOLVIMENTO: "#f87171",
-  EM_AVANCO: "#fbbf24",
-  ALTO_POTENCIAL: "#34d399",
+  EM_RISCO: "#f87171",       // red-400   — 0–40
+  EM_DESENVOLVIMENTO: "#fb923c", // orange-400 — 41–70
+  EM_AVANCO: "#fbbf24",      // amber-400  — 71–85
+  REFERENCIA: "#34d399",     // emerald-400 — 86–100
 };
 
 interface TooltipPayload {
@@ -38,16 +40,16 @@ export function ProfileDistribution({ data }: { data: ProfileBandItem[] }) {
     count: d.count,
     percentage: d.percentage,
     range: d.range,
-    color: BAND_COLOR[d.band] ?? "#6366f1",
     label: d.label,
+    color: BAND_COLOR[d.band] ?? "#6366f1",
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={200}>
       <BarChart
         data={chartData}
         margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-        barCategoryGap="30%"
+        barCategoryGap="28%"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
         <XAxis
@@ -74,7 +76,9 @@ export function ProfileDistribution({ data }: { data: ProfileBandItem[] }) {
                 <p className="text-slate-500 text-xs">{d.range} pts</p>
                 <p className="text-white font-bold mt-1">
                   {d.count} respondente{d.count !== 1 ? "s" : ""}{" "}
-                  <span className="text-slate-400 font-normal">({d.percentage}%)</span>
+                  <span className="text-slate-400 font-normal">
+                    ({d.percentage}%)
+                  </span>
                 </p>
               </div>
             );

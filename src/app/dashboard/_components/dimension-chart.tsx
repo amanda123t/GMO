@@ -7,6 +7,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
   ResponsiveContainer,
   Cell,
 } from "recharts";
@@ -19,7 +20,7 @@ export interface DimensionScore {
   avgScore: number | null;
 }
 
-// Short labels for X-axis
+// Short labels for X-axis (fit without truncation)
 const SHORT_LABEL: Record<string, string> = {
   SELF_AWARENESS: "Autoconsciência",
   SELF_MANAGEMENT: "Autogestão",
@@ -30,20 +31,27 @@ const SHORT_LABEL: Record<string, string> = {
 };
 
 const DEFAULT_COLOR = "#6366f1";
+const RISK_COLOR = "#f87171"; // red-400 — matches EM_RISCO band
 
 interface TooltipPayload {
   name: string;
   score: number;
-  color: string;
   hasData: boolean;
+  isRisk: boolean;
 }
 
-export function DimensionChart({ data }: { data: DimensionScore[] }) {
+interface Props {
+  data: DimensionScore[];
+  riskThreshold?: number; // default: 40
+}
+
+export function DimensionChart({ data, riskThreshold = 40 }: Props) {
   const chartData = data.map((d) => ({
     name: SHORT_LABEL[d.code] ?? d.name,
     score: d.avgScore ?? 0,
     color: d.colorHex ?? DEFAULT_COLOR,
     hasData: d.avgScore !== null,
+    isRisk: d.avgScore !== null && d.avgScore <= riskThreshold,
   }));
 
   return (
@@ -54,6 +62,22 @@ export function DimensionChart({ data }: { data: DimensionScore[] }) {
         barCategoryGap="30%"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+
+        {/* Risk threshold reference line */}
+        <ReferenceLine
+          y={riskThreshold}
+          stroke="#ef4444"
+          strokeDasharray="4 4"
+          strokeOpacity={0.5}
+          label={{
+            value: `Risco ≤${riskThreshold}`,
+            position: "insideTopRight",
+            fill: "#ef4444",
+            fontSize: 10,
+            opacity: 0.7,
+          }}
+        />
+
         <XAxis
           dataKey="name"
           tick={{ fill: "#94a3b8", fontSize: 10 }}
@@ -76,6 +100,9 @@ export function DimensionChart({ data }: { data: DimensionScore[] }) {
             return (
               <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm shadow-xl">
                 <p className="text-slate-300 font-medium">{d.name}</p>
+                {d.isRisk && (
+                  <p className="text-red-400 text-xs mt-0.5">⚠ Zona de risco</p>
+                )}
                 <p className="text-white font-bold mt-0.5">
                   {d.hasData ? `${d.score} / 100` : "Sem dados"}
                 </p>
@@ -87,7 +114,8 @@ export function DimensionChart({ data }: { data: DimensionScore[] }) {
           {chartData.map((entry, index) => (
             <Cell
               key={index}
-              fill={entry.color}
+              // Risk dimensions rendered in red regardless of dimension color
+              fill={entry.isRisk ? RISK_COLOR : entry.color}
               fillOpacity={entry.hasData ? 1 : 0.25}
             />
           ))}

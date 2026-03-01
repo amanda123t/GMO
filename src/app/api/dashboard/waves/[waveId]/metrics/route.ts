@@ -5,13 +5,19 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-type ProfileBand = "EM_DESENVOLVIMENTO" | "EM_AVANCO" | "ALTO_POTENCIAL";
+// ─── Profile bands ────────────────────────────────────────────────────────────
+// Asymmetric: high end requires genuinely high scores (Referência is rare).
+type ProfileBand = "EM_RISCO" | "EM_DESENVOLVIMENTO" | "EM_AVANCO" | "REFERENCIA";
 
 function scoreBand(avg: number): ProfileBand {
-  if (avg < 40) return "EM_DESENVOLVIMENTO";
-  if (avg < 70) return "EM_AVANCO";
-  return "ALTO_POTENCIAL";
+  if (avg <= 40) return "EM_RISCO";
+  if (avg <= 70) return "EM_DESENVOLVIMENTO";
+  if (avg <= 85) return "EM_AVANCO";
+  return "REFERENCIA";
 }
+
+// Dimensions with avg ≤ this threshold are flagged as at-risk
+const RISK_THRESHOLD = 40;
 
 export async function GET(
   _request: Request,
@@ -82,23 +88,29 @@ export async function GET(
     };
   });
 
-  // EI Index = mean of dimension averages (equal weights at dashboard level)
+  // Índice de Capacidade de Adoção = mean of dimension averages (equal weights)
   const validAvgs = dimensionScores
     .map((d) => d.avgScore)
     .filter((s): s is number => s !== null);
-  const eiIndex =
+  const adoptionIndex =
     validAvgs.length > 0
       ? Math.round(
           (validAvgs.reduce((a, b) => a + b, 0) / validAvgs.length) * 10
         ) / 10
       : null;
 
-  // Profile distribution: per-assessment avg → band
+  // Dimensions flagged as at-risk (avg ≤ RISK_THRESHOLD)
+  const riskDimensions = dimensionScores
+    .filter((d) => d.avgScore !== null && d.avgScore <= RISK_THRESHOLD)
+    .map((d) => ({ code: d.code, name: d.name, avgScore: d.avgScore as number }));
+
+  // Profile distribution: per-assessment avg → asymmetric band
   const assessmentIds = [...new Set(scores.map((s) => s.assessmentId))];
   const bandCounts: Record<ProfileBand, number> = {
+    EM_RISCO: 0,
     EM_DESENVOLVIMENTO: 0,
     EM_AVANCO: 0,
-    ALTO_POTENCIAL: 0,
+    REFERENCIA: 0,
   };
   for (const aId of assessmentIds) {
     const aScores = scores.filter((s) => s.assessmentId === aId);
@@ -108,11 +120,22 @@ export async function GET(
     bandCounts[scoreBand(avg)]++;
   }
   const totalWithScores = assessmentIds.length;
+
   const profileDistribution = [
+    {
+      band: "EM_RISCO" as const,
+      label: "Em Risco",
+      range: "0–40",
+      count: bandCounts.EM_RISCO,
+      percentage:
+        totalWithScores > 0
+          ? Math.round((bandCounts.EM_RISCO / totalWithScores) * 100)
+          : 0,
+    },
     {
       band: "EM_DESENVOLVIMENTO" as const,
       label: "Em Desenvolvimento",
-      range: "0–39",
+      range: "41–70",
       count: bandCounts.EM_DESENVOLVIMENTO,
       percentage:
         totalWithScores > 0
@@ -122,7 +145,7 @@ export async function GET(
     {
       band: "EM_AVANCO" as const,
       label: "Em Avanço",
-      range: "40–69",
+      range: "71–85",
       count: bandCounts.EM_AVANCO,
       percentage:
         totalWithScores > 0
@@ -130,13 +153,13 @@ export async function GET(
           : 0,
     },
     {
-      band: "ALTO_POTENCIAL" as const,
-      label: "Alto Potencial",
-      range: "70–100",
-      count: bandCounts.ALTO_POTENCIAL,
+      band: "REFERENCIA" as const,
+      label: "Referência",
+      range: "86–100",
+      count: bandCounts.REFERENCIA,
       percentage:
         totalWithScores > 0
-          ? Math.round((bandCounts.ALTO_POTENCIAL / totalWithScores) * 100)
+          ? Math.round((bandCounts.REFERENCIA / totalWithScores) * 100)
           : 0,
     },
   ];
@@ -158,7 +181,8 @@ export async function GET(
       totalRespondents > 0
         ? Math.round((completedRespondents / totalRespondents) * 100)
         : 0,
-    eiIndex,
+    adoptionIndex,   // renamed from eiIndex — "Índice de Capacidade de Adoção"
+    riskDimensions,  // dimensions with avgScore ≤ 40
     dimensionScores,
     profileDistribution,
   });
