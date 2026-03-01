@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { LoginForm } from "./_components/login-form";
 
 export default function LoginPage() {
@@ -19,9 +20,11 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Form card */}
+        {/* Form card — Suspense required for useSearchParams() in Next.js 15 */}
         <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-8 shadow-xl">
-          <LoginForm />
+          <Suspense fallback={<div className="h-40 animate-pulse bg-slate-700/50 rounded-lg" />}>
+            <LoginForm />
+          </Suspense>
         </div>
       </div>
     </div>

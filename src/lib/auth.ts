@@ -1,8 +1,11 @@
+// Node.js-only auth config — includes Prisma adapter and Nodemailer.
+// NOT imported by middleware (Edge incompatible). Use auth.config.ts for Edge.
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
 import Email from "next-auth/providers/nodemailer";
 import { prisma } from "@/lib/prisma";
+import { authConfig } from "@/lib/auth.config";
 import { z } from "zod";
 import type { Role } from "@prisma/client";
 
@@ -12,15 +15,11 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
-  pages: {
-    signIn: "/login",
-    verifyRequest: "/login/verify",
-    error: "/login/error",
-  },
   providers: [
-    // ── Credentials (email + password) ────────────────────────────────────
+    // ── Credentials (email + password) — full DB lookup ───────────────────
     Credentials({
       name: "Credentials",
       credentials: {
@@ -37,8 +36,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!user || !user.isActive) return null;
 
-        // NOTE: password hash comparison will be added in auth feature branch
-        // For now, Credentials provider is scaffolded; bcrypt check goes here.
+        // NOTE: bcrypt password comparison goes here in the auth feature branch.
         return {
           id: user.id,
           email: user.email,
@@ -50,7 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
 
-    // ── Magic Link (Nodemailer) ────────────────────────────────────────────
+    // ── Magic Link (Nodemailer) — env-gated ───────────────────────────────
     ...(process.env.EMAIL_SERVER_HOST
       ? [
           Email({
@@ -70,7 +68,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        token.id = user.id ?? "";
         token.role = (user as { role: Role }).role;
         token.tenantId = (user as { tenantId: string | null }).tenantId;
       }

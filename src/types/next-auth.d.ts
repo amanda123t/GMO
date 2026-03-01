@@ -2,6 +2,9 @@ import type { Role } from "@prisma/client";
 import "next-auth";
 
 declare module "next-auth" {
+  // Extend only Session.user — role and tenantId are injected via the jwt
+  // callback, never expected from the database adapter (AdapterUser).
+  // Extending the User interface would conflict with @auth/prisma-adapter types.
   interface Session {
     user: {
       id: string;
@@ -11,11 +14,6 @@ declare module "next-auth" {
       role: Role;
       tenantId: string | null;
     };
-  }
-
-  interface User {
-    role: Role;
-    tenantId: string | null;
   }
 }
 
