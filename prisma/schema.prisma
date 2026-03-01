@@ -2,6 +2,8 @@
 // GMO – EI Assessment for Change Management
 // Architecture: multi-tenant, versioned questionnaire, waves, decoupled scoring
 //
+// Hierarchy: Tenant → Project → Wave → Assessment
+//
 // Framework: IE aplicada à Execução de Mudança Organizacional (framework próprio)
 // 6 dimensões oficiais:
 //   SELF_AWARENESS | SELF_MANAGEMENT | MOTIVATION | EMPATHY | SOCIAL_SKILLS | ADAPTABILITY
@@ -31,11 +33,37 @@ model Tenant {
   updatedAt DateTime @updatedAt
 
   users       User[]
-  waves       Wave[]
-  assessments Assessment[]
+  projects    Project[]    // primary path: Tenant → Project → Wave
+  waves       Wave[]       // denormalized back-relation (Wave.tenantId FK)
+  assessments Assessment[] // denormalized back-relation (Assessment.tenantId FK)
   invitations Invitation[]
 
   @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROJECT  (Change initiative grouping waves)
+// Sits between Tenant and Wave: one tenant can run multiple change projects.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?       @db.Text
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  waves  Wave[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +141,7 @@ model VerificationToken {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QUESTIONNAIRE  (versioned)
+// QUESTIONNAIRE  (versioned, global — shared across tenants)
 // ─────────────────────────────────────────────────────────────────────────────
 
 model QuestionnaireVersion {
@@ -126,8 +154,8 @@ model QuestionnaireVersion {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  dimensions  Dimension[]
-  assessments Assessment[]
+  dimensions Dimension[]
+  waves      Wave[]      // questionnaireVersionId lives on Wave now
 
   @@unique([version])
   @@map("questionnaire_versions")
@@ -194,26 +222,34 @@ model QuestionOption {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WAVE  (deployment cycle / cohort)
+// WAVE  (deployment cycle within a Project)
+//
+// questionnaireVersionId lives here so all respondents in a wave answer
+// the same questionnaire version. Moving it to Assessment would allow
+// inconsistent versions within a wave — which is wrong for this use case.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Wave {
-  id             String     @id @default(cuid())
-  tenantId       String
-  name           String     // "Wave 1 – Diagnóstico Inicial Q1/2025"
-  description    String?    @db.Text
-  startDate      DateTime
-  endDate        DateTime
-  status         WaveStatus @default(DRAFT)
+  id                     String     @id @default(cuid())
+  // tenantId denormalized for fast multi-tenant filtering without joins
+  tenantId               String
+  projectId              String
+  questionnaireVersionId String
+  name                   String     // "Wave 1 – Diagnóstico Inicial Q1/2025"
+  description            String?    @db.Text
+  startDate              DateTime
+  endDate                DateTime
+  status                 WaveStatus @default(DRAFT)
   // Hybrid auth: when true, anonymous token-based responses are accepted
-  // alongside authenticated ones. When false, only authenticated users respond.
-  allowAnonymous Boolean    @default(false)
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  allowAnonymous         Boolean    @default(false)
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id])
-  assessments Assessment[]
-  invitations Invitation[]
+  tenant               Tenant               @relation(fields: [tenantId], references: [id])
+  project              Project              @relation(fields: [projectId], references: [id])
+  questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
+  assessments          Assessment[]
+  invitations          Invitation[]
 
   @@map("waves")
 }
@@ -235,37 +271,32 @@ enum WaveStatus {
 //                    respondentKey = "<waveId>_<anonymousToken>"
 //                    anonymousEmail optionally collected at end of survey
 //
-// respondentKey enforces one-assessment-per-respondent-per-wave at DB level
-// regardless of auth mode. Set by application before insert.
+// respondentKey enforces one-assessment-per-respondent-per-wave at DB level.
+// questionnaireVersionId is intentionally NOT here — it lives on Wave.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Assessment {
-  id                     String           @id @default(cuid())
-  tenantId               String
-  waveId                 String
-  // nullable → supports anonymous respondents
-  userId                 String?
-  // unique token for anonymous link-based access
-  anonymousToken         String?          @unique
-  // optional email collected at end of anonymous survey for result delivery
-  anonymousEmail         String?
+  id             String           @id @default(cuid())
+  // tenantId denormalized for fast multi-tenant filtering without joins
+  tenantId       String
+  waveId         String
+  userId         String?          // null for anonymous respondents
+  anonymousToken String?          @unique // unique token for link-based access
+  anonymousEmail String?          // optional, collected at end of anonymous survey
   // DB-level uniqueness: "<waveId>_<userId>" or "<waveId>_<anonymousToken>"
-  // Ensures one assessment per respondent per wave at the database layer.
-  respondentKey          String           @unique
-  questionnaireVersionId String
-  status                 AssessmentStatus @default(PENDING)
-  startedAt              DateTime?
-  completedAt            DateTime?
-  expiresAt              DateTime?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  respondentKey  String           @unique
+  status         AssessmentStatus @default(PENDING)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  tenant               Tenant               @relation(fields: [tenantId], references: [id])
-  wave                 Wave                 @relation(fields: [waveId], references: [id])
-  user                 User?                @relation(fields: [userId], references: [id])
-  questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
-  responses            Response[]
-  scores               Score[]
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  wave      Wave       @relation(fields: [waveId], references: [id])
+  user      User?      @relation(fields: [userId], references: [id])
+  responses Response[]
+  scores    Score[]
 
   @@map("assessments")
 }
@@ -285,15 +316,14 @@ model Response {
   id           String   @id @default(cuid())
   assessmentId String
   questionId   String
-  // nullable for anonymous responses
-  userId       String?
+  userId       String?  // null for anonymous responses
   numericValue Int?     // for LIKERT / MULTIPLE_CHOICE
   textValue    String?  @db.Text // for OPEN_TEXT
   answeredAt   DateTime @default(now())
 
-  assessment Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  question   Question    @relation(fields: [questionId], references: [id])
-  user       User?       @relation(fields: [userId], references: [id])
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question   Question   @relation(fields: [questionId], references: [id])
+  user       User?      @relation(fields: [userId], references: [id])
 
   @@unique([assessmentId, questionId])
   @@map("responses")
@@ -302,20 +332,19 @@ model Response {
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORE  (decoupled scoring engine output)
 //
-// Percentile is ALWAYS internal — computed relative to wave or tenant cohort.
-// No external benchmark. cohortScope defines the comparison group.
+// Written by an external scoring function/worker — never computed inline.
+// Percentile is ALWAYS internal: wave or tenant cohort, no external benchmark.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Score {
-  id              String       @id @default(cuid())
-  assessmentId    String
-  dimensionId     String
-  rawScore        Float        // sum of numeric responses (applying isReversed)
-  normalizedScore Float        // 0–100 scale
-  // Percentile relative to internal cohort only (no external benchmark)
-  cohortPercentile Float?
+  id               String      @id @default(cuid())
+  assessmentId     String
+  dimensionId      String
+  rawScore         Float       // sum of numericValue (applying isReversed)
+  normalizedScore  Float       // 0–100 scale
+  cohortPercentile Float?      // internal only — no external benchmark
   cohortScope      CohortScope @default(WAVE)
-  computedAt      DateTime     @default(now())
+  computedAt       DateTime    @default(now())
 
   assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   dimension  Dimension  @relation(fields: [dimensionId], references: [id])
@@ -324,9 +353,9 @@ model Score {
   @@map("scores")
 }
 
-// Defines the comparison group used when computing cohortPercentile
+// Defines the comparison group for cohortPercentile computation
 enum CohortScope {
-  WAVE   // ranked among all respondents of the same wave
+  WAVE   // ranked among respondents of the same wave
   TENANT // ranked among all respondents of the same tenant (cross-wave)
 }
 
