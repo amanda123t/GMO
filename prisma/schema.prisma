@@ -1,6 +1,10 @@
 // ─── Prisma Schema ────────────────────────────────────────────────────────────
 // GMO – EI Assessment for Change Management
 // Architecture: multi-tenant, versioned questionnaire, waves, decoupled scoring
+//
+// Framework: IE aplicada à Execução de Mudança Organizacional (framework próprio)
+// 6 dimensões oficiais:
+//   SELF_AWARENESS | SELF_MANAGEMENT | MOTIVATION | EMPATHY | SOCIAL_SKILLS | ADAPTABILITY
 
 generator client {
   provider = "prisma-client-js"
@@ -21,7 +25,7 @@ model Tenant {
   name      String
   slug      String   @unique
   logoUrl   String?
-  settings  Json     @default("{}") // theme, features flags, etc.
+  settings  Json     @default("{}") // theme, feature flags, etc.
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -113,14 +117,14 @@ model VerificationToken {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model QuestionnaireVersion {
-  id          String   @id @default(cuid())
-  version     Int      @default(1)
-  name        String   // e.g. "EI-GMO v1.0"
-  description String?  @db.Text
-  isActive    Boolean  @default(false)
+  id          String    @id @default(cuid())
+  version     Int       @default(1)
+  name        String    // e.g. "EI-GMO v1.0"
+  description String?   @db.Text
+  isActive    Boolean   @default(false)
   publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   dimensions  Dimension[]
   assessments Assessment[]
@@ -130,19 +134,24 @@ model QuestionnaireVersion {
 }
 
 model Dimension {
-  id                     String               @id @default(cuid())
+  id                     String @id @default(cuid())
   questionnaireVersionId String
-  name                   String   // e.g. "Autoconsciência", "Autogestão", "Empatia", etc.
-  description            String?  @db.Text
+  // Stable machine-readable code (never changes after creation)
+  // GMO framework codes: SELF_AWARENESS | SELF_MANAGEMENT | MOTIVATION |
+  //                      EMPATHY | SOCIAL_SKILLS | ADAPTABILITY
+  code                   String
+  name                   String  @db.Text
+  description            String? @db.Text
   order                  Int
-  weight                 Float    @default(1.0) // for weighted scoring
-  colorHex               String?  // UI colour per dimension
+  weight                 Float   @default(1.0) // for weighted scoring
+  colorHex               String? // UI colour per dimension
 
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id], onDelete: Cascade)
   questions            Question[]
   scores               Score[]
 
   @@unique([questionnaireVersionId, order])
+  @@unique([questionnaireVersionId, code]) // code is unique within a version
   @@map("dimensions")
 }
 
@@ -156,7 +165,7 @@ model Question {
   isReversed  Boolean      @default(false) // reverse-scored items
   createdAt   DateTime     @default(now())
 
-  dimension Dimension      @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
+  dimension Dimension        @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
   options   QuestionOption[]
   responses Response[]
 
@@ -174,8 +183,8 @@ enum QuestionType {
 model QuestionOption {
   id         String @id @default(cuid())
   questionId String
-  label      String  // "Discordo Totalmente"
-  value      Int     // 1..5 or 1..7
+  label      String // "Discordo Totalmente"
+  value      Int    // 1..5 or 1..7
   order      Int
 
   question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
@@ -189,15 +198,18 @@ model QuestionOption {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Wave {
-  id          String     @id @default(cuid())
-  tenantId    String
-  name        String     // "Wave 1 – Diagnóstico Inicial Q1/2025"
-  description String?    @db.Text
-  startDate   DateTime
-  endDate     DateTime
-  status      WaveStatus @default(DRAFT)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  tenantId       String
+  name           String     // "Wave 1 – Diagnóstico Inicial Q1/2025"
+  description    String?    @db.Text
+  startDate      DateTime
+  endDate        DateTime
+  status         WaveStatus @default(DRAFT)
+  // Hybrid auth: when true, anonymous token-based responses are accepted
+  // alongside authenticated ones. When false, only authenticated users respond.
+  allowAnonymous Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
   assessments Assessment[]
@@ -215,13 +227,31 @@ enum WaveStatus {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ASSESSMENT  (one per respondent per wave)
+//
+// Hybrid auth model:
+//   - Authenticated: userId is set, anonymousToken is null
+//                    respondentKey = "<waveId>_<userId>"
+//   - Anonymous:     userId is null, anonymousToken is a unique UUID
+//                    respondentKey = "<waveId>_<anonymousToken>"
+//                    anonymousEmail optionally collected at end of survey
+//
+// respondentKey enforces one-assessment-per-respondent-per-wave at DB level
+// regardless of auth mode. Set by application before insert.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Assessment {
   id                     String           @id @default(cuid())
   tenantId               String
   waveId                 String
-  userId                 String
+  // nullable → supports anonymous respondents
+  userId                 String?
+  // unique token for anonymous link-based access
+  anonymousToken         String?          @unique
+  // optional email collected at end of anonymous survey for result delivery
+  anonymousEmail         String?
+  // DB-level uniqueness: "<waveId>_<userId>" or "<waveId>_<anonymousToken>"
+  // Ensures one assessment per respondent per wave at the database layer.
+  respondentKey          String           @unique
   questionnaireVersionId String
   status                 AssessmentStatus @default(PENDING)
   startedAt              DateTime?
@@ -232,12 +262,11 @@ model Assessment {
 
   tenant               Tenant               @relation(fields: [tenantId], references: [id])
   wave                 Wave                 @relation(fields: [waveId], references: [id])
-  user                 User                 @relation(fields: [userId], references: [id])
+  user                 User?                @relation(fields: [userId], references: [id])
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
   responses            Response[]
   scores               Score[]
 
-  @@unique([waveId, userId]) // one assessment per user per wave
   @@map("assessments")
 }
 
@@ -256,14 +285,15 @@ model Response {
   id           String   @id @default(cuid())
   assessmentId String
   questionId   String
-  userId       String
-  numericValue Int?     // for LIKERT/MULTIPLE_CHOICE
+  // nullable for anonymous responses
+  userId       String?
+  numericValue Int?     // for LIKERT / MULTIPLE_CHOICE
   textValue    String?  @db.Text // for OPEN_TEXT
   answeredAt   DateTime @default(now())
 
-  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  question   Question   @relation(fields: [questionId], references: [id])
-  user       User       @relation(fields: [userId], references: [id])
+  assessment Assessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
 
   @@unique([assessmentId, questionId])
   @@map("responses")
@@ -271,22 +301,33 @@ model Response {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORE  (decoupled scoring engine output)
+//
+// Percentile is ALWAYS internal — computed relative to wave or tenant cohort.
+// No external benchmark. cohortScope defines the comparison group.
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Score {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   assessmentId    String
   dimensionId     String
-  rawScore        Float    // sum of numeric responses
-  normalizedScore Float    // 0–100 scale
-  percentile      Float?   // relative to cohort (computed post-wave)
-  computedAt      DateTime @default(now())
+  rawScore        Float        // sum of numeric responses (applying isReversed)
+  normalizedScore Float        // 0–100 scale
+  // Percentile relative to internal cohort only (no external benchmark)
+  cohortPercentile Float?
+  cohortScope      CohortScope @default(WAVE)
+  computedAt      DateTime     @default(now())
 
   assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   dimension  Dimension  @relation(fields: [dimensionId], references: [id])
 
   @@unique([assessmentId, dimensionId])
   @@map("scores")
+}
+
+// Defines the comparison group used when computing cohortPercentile
+enum CohortScope {
+  WAVE   // ranked among all respondents of the same wave
+  TENANT // ranked among all respondents of the same tenant (cross-wave)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
