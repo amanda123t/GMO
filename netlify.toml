@@ -1,14 +1,16 @@
-# netlify.toml — Netlify build config for Next.js 15 + Prisma
-# The @netlify/plugin-nextjs runtime handles SSR/ISR/API routes automatically.
+# netlify.toml — Netlify build config for Next.js 15 + Prisma + Neon
+#
+# Neon extension injects NETLIFY_DATABASE_URL / NETLIFY_DATABASE_URL_UNPOOLED.
+# Prisma schema uses DATABASE_URL / DIRECT_URL.
+# The build command maps them so `prisma generate` works without extra env vars in the UI.
 
 [build]
-  command   = "npm run build"
+  # Export Neon vars under Prisma-expected names before running the build.
+  # Falls back gracefully if DATABASE_URL is already set manually in the UI.
+  command   = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}; export DIRECT_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DIRECT_URL}; npm run build"
   publish   = ".next"
 
 [build.environment]
-  # Force Netlify to skip its dependency cache so postinstall (prisma generate)
-  # always runs fresh — prevents stale Prisma Client errors.
-  NPM_FLAGS = "--prefer-offline=false"
   NODE_VERSION = "20"
 
 [[plugins]]
