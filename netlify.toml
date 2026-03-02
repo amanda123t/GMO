@@ -1,0 +1,15 @@
+# netlify.toml — Netlify build config for Next.js 15 + Prisma
+# The @netlify/plugin-nextjs runtime handles SSR/ISR/API routes automatically.
+
+[build]
+  command   = "npm run build"
+  publish   = ".next"
+
+[build.environment]
+  # Force Netlify to skip its dependency cache so postinstall (prisma generate)
+  # always runs fresh — prevents stale Prisma Client errors.
+  NPM_FLAGS = "--prefer-offline=false"
+  NODE_VERSION = "20"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
