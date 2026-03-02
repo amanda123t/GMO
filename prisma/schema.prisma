@@ -57,8 +57,27 @@ model Project {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   waves  Wave[]
+  areas  Area[]
 
   @@map("projects")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AREA  (organizational unit / team within a Project)
+// Used to segment respondents and filter reports by area.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Area {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("areas")
 }
 
 enum ProjectStatus {

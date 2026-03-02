@@ -92,6 +92,51 @@ const DIMENSIONS = [
 async function main() {
   console.log("🌱 Seeding database — EI-GMO v1.0...");
 
+  // ── Demo Tenant ───────────────────────────────────────────────────────────
+  const tenant = await prisma.tenant.upsert({
+    where: { slug: "demo" },
+    update: {},
+    create: {
+      name: "Demo Organization",
+      slug: "demo",
+      isActive: true,
+    },
+  });
+
+  console.log(`✅ Tenant: ${tenant.name} (id: ${tenant.id})`);
+
+  // ── Demo Project ──────────────────────────────────────────────────────────
+  const project = await prisma.project.upsert({
+    where: { id: "demo-project-001" },
+    update: {},
+    create: {
+      id: "demo-project-001",
+      tenantId: tenant.id,
+      name: "Transformação Digital 2026",
+      description: "Projeto de diagnóstico de IE para a iniciativa de transformação digital.",
+      status: "ACTIVE",
+    },
+  });
+
+  console.log(`✅ Project: ${project.name} (id: ${project.id})`);
+
+  // ── Demo Areas ────────────────────────────────────────────────────────────
+  const areaNames = [
+    { id: "demo-area-001", name: "Tecnologia", description: "Times de engenharia e produto" },
+    { id: "demo-area-002", name: "Operações", description: "Times de operações e logística" },
+    { id: "demo-area-003", name: "Pessoas & Cultura", description: "RH, desenvolvimento e cultura organizacional" },
+  ];
+
+  for (const area of areaNames) {
+    await prisma.area.upsert({
+      where: { id: area.id },
+      update: {},
+      create: { ...area, projectId: project.id },
+    });
+  }
+
+  console.log(`✅ Areas: ${areaNames.map((a) => a.name).join(", ")}`);
+
   // ── Questionnaire Version v1 ──────────────────────────────────────────────
   const qv = await prisma.questionnaireVersion.upsert({
     where: { version: 1 },
@@ -178,6 +223,26 @@ async function main() {
       `  ✅ [${dimData.code}] ${dimData.name} — ${questions.length} perguntas`
     );
   }
+
+  // ── Demo Wave ─────────────────────────────────────────────────────────────
+  const wave = await prisma.wave.upsert({
+    where: { id: "demo-wave-001" },
+    update: {},
+    create: {
+      id: "demo-wave-001",
+      tenantId: tenant.id,
+      projectId: project.id,
+      questionnaireVersionId: qv.id,
+      name: "Wave 1 – Diagnóstico Inicial Q1/2026",
+      description: "Primeira onda de avaliação de IE para o projeto de transformação digital.",
+      startDate: new Date("2026-03-01"),
+      endDate: new Date("2026-03-31"),
+      status: "ACTIVE",
+      allowAnonymous: false,
+    },
+  });
+
+  console.log(`✅ Wave: ${wave.name} (id: ${wave.id})`);
 
   console.log("\n🎉 Seed concluído — 6 dimensões, 18 perguntas, 90 opções.");
 }
