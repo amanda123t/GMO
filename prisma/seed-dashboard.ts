@@ -97,6 +97,7 @@ async function main() {
       id: "seed-project-demo",
       tenantId: tenant.id,
       name: "Transformação Digital 2026",
+      slug: "transformacao-digital-2026",
       description: "Projeto piloto para validação do Dashboard MVP.",
       status: "ACTIVE",
     },

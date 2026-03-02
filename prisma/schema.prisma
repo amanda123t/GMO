@@ -50,14 +50,21 @@ model Project {
   id          String        @id @default(cuid())
   tenantId    String
   name        String
+  slug        String        // URL-friendly, auto-generated from name, unique per tenant
   description String?       @db.Text
   status      ProjectStatus @default(ACTIVE)
+  createdById String?
+  updatedById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  waves  Wave[]
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  createdBy User?   @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  waves     Wave[]
 
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@index([tenantId, status])
   @@map("projects")
 }
 
@@ -78,17 +85,28 @@ model User {
   emailVerified DateTime?
   password      String?   // bcrypt hash — null for magic-link-only accounts
   role          Role      @default(RESPONDENT)
-  tenantId      String?
+  tenantId      String?   // null = SUPER_ADMIN; required for all other roles
   isActive      Boolean   @default(true)
+  lastLoginAt   DateTime? // updated on successful credential login (authorize callback)
+  invitedAt     DateTime? // set when created by an admin user
+  invitedById   String?   // FK to User who sent the invite
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant      Tenant?      @relation(fields: [tenantId], references: [id])
-  accounts    Account[]
-  sessions    Session[]
-  assessments Assessment[]
-  responses   Response[]
+  tenant          Tenant?      @relation(fields: [tenantId], references: [id])
+  invitedBy       User?        @relation("InvitedBy", fields: [invitedById], references: [id])
+  invitees        User[]       @relation("InvitedBy")
+  accounts        Account[]
+  sessions        Session[]
+  assessments     Assessment[]
+  responses       Response[]
+  createdProjects Project[]    @relation("ProjectCreatedBy")
+  createdWaves    Wave[]       @relation("WaveCreatedBy")
+  sentInvitations Invitation[] @relation("InvitationInvitedBy")
 
+  @@index([tenantId])
+  @@index([tenantId, role])
+  @@index([tenantId, isActive])
   @@map("users")
 }
 
@@ -243,15 +261,22 @@ model Wave {
   status                 WaveStatus @default(DRAFT)
   // Hybrid auth: when true, anonymous token-based responses are accepted
   allowAnonymous         Boolean    @default(false)
+  createdById            String?
+  updatedById            String?
+  deletedAt              DateTime?  // soft delete — null means active
   createdAt              DateTime   @default(now())
   updatedAt              DateTime   @updatedAt
 
   tenant               Tenant               @relation(fields: [tenantId], references: [id])
   project              Project              @relation(fields: [projectId], references: [id])
   questionnaireVersion QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
+  createdBy            User?                @relation("WaveCreatedBy", fields: [createdById], references: [id])
   assessments          Assessment[]
   invitations          Invitation[]
 
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([projectId])
   @@map("waves")
 }
 
@@ -299,6 +324,10 @@ model Assessment {
   responses Response[]
   scores    Score[]
 
+  @@index([tenantId])
+  @@index([waveId])
+  @@index([waveId, status])
+  @@index([userId])
   @@map("assessments")
 }
 
@@ -365,21 +394,26 @@ enum CohortScope {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Invitation {
-  id         String           @id @default(cuid())
-  tenantId   String
-  waveId     String
-  email      String
-  token      String           @unique @default(cuid())
-  status     InvitationStatus @default(PENDING)
-  sentAt     DateTime?
-  acceptedAt DateTime?
-  expiresAt  DateTime
-  createdAt  DateTime         @default(now())
+  id          String           @id @default(cuid())
+  tenantId    String
+  waveId      String
+  email       String
+  token       String           @unique @default(cuid())
+  status      InvitationStatus @default(PENDING)
+  sentAt      DateTime?
+  acceptedAt  DateTime?
+  expiresAt   DateTime
+  invitedById String?
+  resendCount Int              @default(0)
+  createdAt   DateTime         @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  wave   Wave   @relation(fields: [waveId], references: [id])
+  tenant    Tenant @relation(fields: [tenantId], references: [id])
+  wave      Wave   @relation(fields: [waveId], references: [id])
+  invitedBy User?  @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
 
   @@unique([waveId, email])
+  @@index([tenantId])
+  @@index([waveId])
   @@map("invitations")
 }
 
